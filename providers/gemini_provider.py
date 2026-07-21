@@ -33,18 +33,25 @@ class GeminiLLMProvider(BaseLLMProvider):
             file=file_stream,
             config=types.UploadFileConfig(mime_type=mime_type)
         )
-        
-        # Bucle de espera (el resto de tu lógica es correcta)
-        while uploaded_file.state.name == "PROCESSING":
-            print("Esperando a que Gemini procese el PDF...")
-            time.sleep(2)
-            uploaded_file = self._client.files.get(name=uploaded_file.name)
+        try:
+            # Bucle de espera (el resto de tu lógica es correcta)
+            while uploaded_file.state.name == "PROCESSING":
+                print("Esperando a que Gemini procese el PDF...")
+                time.sleep(2)
+                uploaded_file = self._client.files.get(name=uploaded_file.name)
+                
+            if uploaded_file.state.name == "FAILED":
+                raise Exception("El procesamiento del archivo en Google falló.")
             
-        if uploaded_file.state.name == "FAILED":
-            raise Exception("El procesamiento del archivo en Google falló.")
-        
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=[uploaded_file, prompt]
-        )
-        return response.text
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=[uploaded_file, prompt]
+            )
+            return response.text
+        finally:
+            # Esto se ejecuta siempre, garantizando que el archivo se borre de Google al terminar
+            try:
+                self._client.files.delete(name=uploaded_file.name)
+                print("Archivo temporal eliminado de los servidores de Google.")
+            except Exception as e:
+                print(f"No se pudo eliminar el archivo temporal: {e}")

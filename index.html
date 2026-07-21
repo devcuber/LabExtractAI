@@ -13,9 +13,16 @@
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center font-sans">
 
-    <div class="max-w-md w-full px-6 py-10 bg-white rounded-2xl shadow-xl border border-slate-100 text-center">
+    <div class="max-w-md w-full px-6 py-10 bg-white rounded-2xl shadow-xl border border-slate-100 text-center relative">
+        
+        <!-- Interruptor discreto de formato (CSV por defecto) -->
+        <div class="absolute top-4 right-4 inline-flex p-0.5 bg-slate-100 rounded-lg text-xs font-medium text-slate-500">
+            <button type="button" id="btnCsv" onclick="setFormat('csv')" class="px-2.5 py-1 rounded-md bg-white text-blue-600 shadow-sm transition-all">CSV</button>
+            <button type="button" id="btnJson" onclick="setFormat('json')" class="px-2.5 py-1 rounded-md hover:text-slate-900 transition-all">JSON</button>
+        </div>
+
         <!-- Header -->
-        <div class="mb-8">
+        <div class="mb-8 mt-2">
             <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-blue-600 mb-4">
                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             </div>
@@ -35,44 +42,76 @@
         <!-- Spinner (oculto inicialmente) -->
         <div id="spinner" class="hidden py-8">
             <div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
-            <p class="mt-4 text-slate-600 font-medium animate-pulse">Procesando con IA...</p>
+            <p id="spinnerText" class="mt-4 text-slate-600 font-medium animate-pulse">Generando formato...</p>
         </div>
     </div>
 
     <script>
+        let selectedFormat = 'csv';
+
+        function setFormat(format) {
+            selectedFormat = format;
+            const btnCsv = document.getElementById('btnCsv');
+            const btnJson = document.getElementById('btnJson');
+            
+            if (format === 'csv') {
+                btnCsv.className = "px-2.5 py-1 rounded-md bg-white text-blue-600 shadow-sm transition-all";
+                btnJson.className = "px-2.5 py-1 rounded-md hover:text-slate-900 transition-all";
+            } else {
+                btnJson.className = "px-2.5 py-1 rounded-md bg-white text-blue-600 shadow-sm transition-all";
+                btnCsv.className = "px-2.5 py-1 rounded-md hover:text-slate-900 transition-all";
+            }
+        }
+
         const input = document.getElementById('fileInput');
         const uiArea = document.getElementById('ui-area');
         const spinner = document.getElementById('spinner');
+        const spinnerText = document.getElementById('spinnerText');
+
+        function triggerDownload(content, filename, contentType) {
+            const blob = new Blob([content], { type: contentType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
 
         input.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
-            // Transición de estado
             uiArea.classList.add('hidden');
             spinner.classList.remove('hidden');
+            spinnerText.textContent = selectedFormat === 'csv' ? 'Generando CSV tabular...' : 'Generando JSON estructurado...';
 
             const formData = new FormData();
             formData.append('file', file);
 
             try {
-                const response = await fetch('/api/v1/extract', { method: 'POST', body: formData });
+                const response = await fetch('/api/v1/analyze-lab', { method: 'POST', body: formData });
                 
-                if (!response.ok) throw new Error('Error');
+                if (!response.ok) throw new Error('Error en el servidor');
 
                 const data = await response.json();
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
+                const timestamp = Date.now();
 
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `resultado_${Date.now()}.json`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
+                if (selectedFormat === 'csv') {
+                    triggerDownload(data.csv_data, `resultado_${timestamp}.csv`, 'text/csv;charset=utf-8;');
+                } else {
+                    const jsonString = JSON.stringify(data.json_data, null, 2);
+                    triggerDownload(jsonString, `resultado_${timestamp}.json`, 'application/json');
+                }
                 
-                window.location.reload();
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
+
             } catch (error) {
+                console.error(error);
                 alert("Ups, algo salió mal. Inténtalo de nuevo.");
                 window.location.reload();
             }
