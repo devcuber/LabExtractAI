@@ -136,13 +136,14 @@
                 }
 
                 const data = await response.json();
-                const timestamp = Date.now();
-
+                const originalName = selectedFile.name.replace(/\.[^/.]+$/, ''); // quita la extensión original
+                const baseName = `${originalName}_clinical_data`;
+                
                 if (selectedFormat === 'csv') {
-                    triggerDownload(data.csv_data, `resultado_${timestamp}.csv`, 'text/csv;charset=utf-8;');
+                    triggerDownload(data.csv_data, `${baseName}.csv`, 'text/csv;charset=utf-8;');
                 } else {
                     const jsonString = JSON.stringify(data.json_data, null, 2);
-                    triggerDownload(jsonString, `resultado_${timestamp}.json`, 'application/json');
+                    triggerDownload(jsonString, `${baseName}.json`, 'application/json');
                 }
 
                 setTimeout(() => {

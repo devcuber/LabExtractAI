@@ -10,8 +10,8 @@ import asyncio
 
 app = FastAPI()
 load_dotenv()
-#llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"))
-llm_provider = MockLLMProvider() #ACTIVAR PARA PRUEBAS LOCALES SIN CONSUMIR LA API DE GOOGLE
+llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"))
+#llm_provider = MockLLMProvider() #ACTIVAR PARA PRUEBAS LOCALES SIN CONSUMIR LA API DE GOOGLE
 lab_service = LabAnalyzerService(llm_provider=llm_provider)
 
 @app.get("/")
