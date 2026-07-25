@@ -55,3 +55,8 @@ class FileTypeDetector:
 
     def is_allowed(self, mime_type: str) -> bool:
         return mime_type in self.ALLOWED_MIME_TYPES
+   
+   
+class UnsupportedFileTypeError(Exception):
+    """Se lanza cuando el archivo no es un PDF ni una imagen soportada."""
+    pass

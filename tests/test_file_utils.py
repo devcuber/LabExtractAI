@@ -2,7 +2,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from services.file_type_detector import FileTypeDetector
+from utils.file_utils import FileTypeDetector
 
 detector = FileTypeDetector()
 

@@ -4,7 +4,7 @@ from providers.gemini_provider import GeminiLLMProvider
 from providers.mock_llm_provider import MockLLMProvider
 from services.lab_service import LabAnalyzerService
 from utils.pdf_utils import PdfPasswordRequiredError, PdfIncorrectPasswordError
-from services.file_type_detector import FileTypeDetector
+from utils.file_utils import UnsupportedFileTypeError
 from dotenv import load_dotenv
 import os
 
@@ -13,7 +13,6 @@ load_dotenv()
 llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"))
 #llm_provider = MockLLMProvider() #ACTIVAR PARA PRUEBAS LOCALES SIN CONSUMIR LA API DE GOOGLE
 lab_service = LabAnalyzerService(llm_provider=llm_provider)
-file_type_detector = FileTypeDetector()
 
 
 @app.get("/")
@@ -30,15 +29,10 @@ async def analyze_lab(
     if not content:
         raise HTTPException(status_code=400, detail="El archivo está vacío.")
 
-    mime_type = file_type_detector.detect(content, file.filename, file.content_type)
-    if not file_type_detector.is_allowed(mime_type):
-        raise HTTPException(
-            status_code=400,
-            detail="Formato no soportado. Sube un PDF, PNG, JPG o WEBP.",
-        )
-
     try:
-        result = await lab_service.extract_and_transform(content, mime_type, password=password)
+        result = await lab_service.extract_and_transform(content, password=password)
+    except UnsupportedFileTypeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except PdfPasswordRequiredError:
         raise HTTPException(status_code=422, detail="El PDF requiere contraseña.")
     except PdfIncorrectPasswordError:
