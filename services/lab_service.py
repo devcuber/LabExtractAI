@@ -2,6 +2,9 @@ import json
 import io
 import csv
 from core.base_llm_provider import BaseLLMProvider
+from transformers.fhir_tabular_transformer import FHIRTabularTransformer
+from utils.csv_utils import dict_to_csv_string
+from utils.pdf_utils import PdfUtils
 
 class LabAnalyzerService:
     def __init__(self, llm_provider: BaseLLMProvider):
@@ -21,56 +24,20 @@ class LabAnalyzerService:
         clean_json = response_text.replace("```json", "").replace("```", "").strip()
         return json.loads(clean_json)
 
-    def json_to_fhir_tabular_csv(self, data: dict) -> str:
-        """
-        Convierte un diccionario JSON anidado (recurso FHIR) en un string CSV plano,
-        aplanando las estructuras con notación de puntos y omitiendo los campos nulos o ausentes.
-        """
-        def flatten_dict(nested_dict, parent_key="", sep="."):
-            items = []
-            for k, v in nested_dict.items():
-                new_key = f"{parent_key}{sep}{k}" if parent_key else k
-                if isinstance(v, dict):
-                    items.extend(flatten_dict(v, new_key, sep=sep).items())
-                elif isinstance(v, list):
-                    # Maneja listas simples o mapea diccionarios internos dentro de la lista (ej. coding)
-                    for i, item in enumerate(v):
-                        if isinstance(item, dict):
-                            items.extend(flatten_dict(item, f"{new_key}[{i}]", sep=sep).items())
-                        else:
-                            items.append((f"{new_key}[{i}]", item))
-                else:
-                    if v is not None and v != "":
-                        items.append((new_key, v))
-            return dict(items)
 
-        # 1. Aplanamos el JSON omitiendo nulos/vacíos de forma nativa
-        flattened_data = flatten_dict(data)
-
-        # 2. Preparamos los encabezados y los valores para el CSV
-        headers = list(flattened_data.keys())
-        values = [flattened_data[h] for h in headers]
-
-        # 3. Generamos el texto CSV utilizando StringIO y el módulo csv estándar
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(headers)
-        writer.writerow(values)
-        
-        return output.getvalue().strip()
-
-    async def extract_and_transform(self, file_content: bytes, mime_type: str = "application/pdf") -> dict:
+    async def extract_and_transform(self, file_content: bytes, password: str | None = None) -> dict:
         """
-        Orquesta el flujo completo:
-        1. Envía el archivo (PDF o imagen) a extract_data para obtener el JSON del recurso FHIR.
-        2. Pasa el JSON al aplanador para generar el CSV tabular dinámico.
-        3. Retorna ambos resultados listos para ser consumidos por el endpoint.
+        Orquesta el flujo completo: 
+        1. Si el PDF está protegido con contraseña, lo desbloquea
+        2. Envía el archivo (PDF o imagen) a extract_data para obtener el JSON del recurso FHIR.
+        3. Pasa el JSON al aplanador para generar el CSV tabular dinámico.
+        4. Retorna ambos resultados listos para ser consumidos por el endpoint.
         """
-        # 1. Obtenemos el JSON estructurado desde el LLM usando el archivo y su mime_type real
-        json_data = await self.extract_data(file_content, mime_type)
-        
-        # 2. Transformamos el JSON obtenido al formato CSV tabular FHIR
-        csv_data = self.json_to_fhir_tabular_csv(json_data)
+        if PdfUtils.is_pdf(file_content):
+            file_content = PdfUtils.unlock_pdf(file_content, password)
+        json_data = await self.extract_data(file_content)        
+        flat_data = FHIRTabularTransformer.flatten_fhir_to_dict(json_data)        
+        csv_data = dict_to_csv_string(flat_data)
         
         # 3. Armamos la respuesta unificada para el endpoint
         return {
