@@ -7,15 +7,15 @@ class LabAnalyzerService:
     def __init__(self, llm_provider: BaseLLMProvider):
         self.llm = llm_provider
 
-    async def extract_data(self, file_content: bytes) -> dict:
+    async def extract_data(self, file_content: bytes, mime_type: str = "application/pdf") -> dict:
         prompt = """
         Actúa como un experto en HL7 FHIR R4. Crea un recurso 'Observation' 
         basado en el archivo adjunto. Omite campos vacíos, no uses dataAbsentReason, 
         responde solo con el JSON puro.
         """
-        
-        # Llamas al nuevo método del provider
-        response_text = self.llm.ask_with_file(prompt, file_content)
+
+        # Pasamos el mime_type real (PDF o imagen) al provider
+        response_text = self.llm.ask_with_file(prompt, file_content, mime_type)
         
         # Limpieza
         clean_json = response_text.replace("```json", "").replace("```", "").strip()
@@ -59,15 +59,15 @@ class LabAnalyzerService:
         
         return output.getvalue().strip()
 
-    async def extract_and_transform(self, file_content: bytes) -> dict:
+    async def extract_and_transform(self, file_content: bytes, mime_type: str = "application/pdf") -> dict:
         """
-        Orquesta el flujo completo: 
-        1. Envía el PDF a extract_data para obtener el JSON del recurso FHIR.
+        Orquesta el flujo completo:
+        1. Envía el archivo (PDF o imagen) a extract_data para obtener el JSON del recurso FHIR.
         2. Pasa el JSON al aplanador para generar el CSV tabular dinámico.
         3. Retorna ambos resultados listos para ser consumidos por el endpoint.
         """
-        # 1. Obtenemos el JSON estructurado desde el LLM usando el PDF
-        json_data = await self.extract_data(file_content)
+        # 1. Obtenemos el JSON estructurado desde el LLM usando el archivo y su mime_type real
+        json_data = await self.extract_data(file_content, mime_type)
         
         # 2. Transformamos el JSON obtenido al formato CSV tabular FHIR
         csv_data = self.json_to_fhir_tabular_csv(json_data)

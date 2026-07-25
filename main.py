@@ -1,24 +1,39 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from providers.gemini_provider import GeminiLLMProvider
-#from providers.mock_llm_provider import MockLLMProvider
+from providers.mock_llm_provider import MockLLMProvider
 from services.lab_service import LabAnalyzerService
+from services.file_type_detector import FileTypeDetector
 from dotenv import load_dotenv
 import os
-import asyncio
 
 app = FastAPI()
 load_dotenv()
-llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"))
-#llm_provider = MockLLMProvider()
+#llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"))
+llm_provider = MockLLMProvider()
 lab_service = LabAnalyzerService(llm_provider=llm_provider)
+file_type_detector = FileTypeDetector()
+
 
 @app.get("/")
 async def read_index():
     return FileResponse("index.html")
 
+
 @app.post("/api/v1/analyze-lab")
 async def analyze_lab(file: UploadFile = File(...)):
-    content = await file.read()    
-    result = await lab_service.extract_and_transform(content)
+    content = await file.read()
+
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+
+    mime_type = file_type_detector.detect(content, file.filename, file.content_type)
+
+    if not file_type_detector.is_allowed(mime_type):
+        raise HTTPException(
+            status_code=400,
+            detail="Formato no soportado. Sube un PDF, PNG, JPG o WEBP.",
+        )
+
+    result = await lab_service.extract_and_transform(content, mime_type)
     return result
