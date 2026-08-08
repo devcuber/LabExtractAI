@@ -1,10 +1,13 @@
 import json
 import io
 import csv
+import logging
 from core.base_llm_provider import BaseLLMProvider
 from transformers.fhir_tabular_transformer import FHIRTabularTransformer
 from utils.csv_utils import dict_to_csv_string
 from utils.pdf_utils import PdfUtils
+
+logger = logging.getLogger(__name__)
 
 class LabAnalyzerService:
     def __init__(self, llm_provider: BaseLLMProvider):
@@ -37,6 +40,7 @@ class LabAnalyzerService:
         4. Retorna ambos resultados listos para ser consumidos por el endpoint.
         """
         if PdfUtils.is_pdf(file_content):
+            logger.info("El usuario subió un archivo reconocido como PDF.")            
             file_content = PdfUtils.unlock_pdf(file_content, password)
         json_data = await self.extract_data(file_content)        
         flat_data = FHIRTabularTransformer.flatten_fhir_to_dict(json_data)        
