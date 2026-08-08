@@ -15,9 +15,12 @@ class LabAnalyzerService:
 
     async def extract_data(self, file_content: bytes, mime_type: str) -> dict:
         prompt = """
-        Actúa como un experto en HL7 FHIR R4. Crea un recurso 'Observation' 
-        basado en el archivo adjunto. Omite campos vacíos, no uses dataAbsentReason, 
-        responde solo con el JSON puro.
+        Act as an expert in HL7 FHIR R4. Analyze all laboratory tests 
+        from the attached file and create a single FHIR Observation resource 
+        that acts as a general panel. Use the component field to include all 
+        quantitative and qualitative results found in the document. 
+        Omit empty fields, do not use dataAbsentReason, and respond strictly 
+        with pure JSON only, with no markdown code blocks or additional text.
         """
 
         # Pasamos el mime_type real (PDF o imagen) al provider
