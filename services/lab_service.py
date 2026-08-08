@@ -1,12 +1,15 @@
 import json
 import io
 import csv
+import logging
 from core.base_llm_provider import BaseLLMProvider
 from transformers.fhir_tabular_transformer import FHIRTabularTransformer
 from utils.csv_utils import dict_to_csv_string
 from utils.pdf_utils import PdfUtils
 from utils.file_utils import FileTypeDetector, UnsupportedFileTypeError
 
+
+logger = logging.getLogger(__name__)
 
 class LabAnalyzerService:
     def __init__(self, llm_provider: BaseLLMProvider):
@@ -49,6 +52,7 @@ class LabAnalyzerService:
 
         # 2. Si es un PDF protegido, lo desbloqueamos antes de enviarlo al LLM
         if PdfUtils.is_pdf(file_content):
+            logger.info("El usuario subió un archivo reconocido como PDF.")            
             file_content = PdfUtils.unlock_pdf(file_content, password)
 
         # 3. Obtenemos el JSON estructurado desde el LLM usando el archivo y su mime_type real

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from providers.gemini_provider import GeminiLLMProvider
@@ -7,6 +9,8 @@ from utils.pdf_utils import PdfPasswordRequiredError, PdfIncorrectPasswordError
 from utils.file_utils import UnsupportedFileTypeError
 from dotenv import load_dotenv
 import os
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 app = FastAPI()
 load_dotenv()
