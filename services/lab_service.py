@@ -1,10 +1,8 @@
 import json
-import io
-import csv
 import logging
 from core.base_llm_provider import BaseLLMProvider
 from transformers.fhir_tabular_transformer import FHIRTabularTransformer
-from utils.csv_utils import dict_to_csv_string
+from utils.csv_utils import list_to_csv_string
 from utils.pdf_utils import PdfUtils
 from utils.file_utils import FileTypeDetector, UnsupportedFileTypeError
 
@@ -29,10 +27,8 @@ class LabAnalyzerService:
         # Pasamos el mime_type real (PDF o imagen) al provider
         response_text = self.llm.ask_with_file(prompt, file_content, mime_type)
         
-        # Limpieza
         clean_json = response_text.replace("```json", "").replace("```", "").strip()
         return json.loads(clean_json)
-
 
     async def extract_and_transform(self, file_content: bytes, password: str | None = None) -> dict:
         """
@@ -54,15 +50,11 @@ class LabAnalyzerService:
         if PdfUtils.is_pdf(file_content):
             logger.info("El usuario subió un archivo reconocido como PDF.")            
             file_content = PdfUtils.unlock_pdf(file_content, password)
-
-        # 3. Obtenemos el JSON estructurado desde el LLM usando el archivo y su mime_type real
+            
         json_data = await self.extract_data(file_content, mime_type)
-
-        # 4. Transformamos el JSON obtenido al formato CSV tabular FHIR
-        flat_data = FHIRTabularTransformer.flatten_fhir_to_dict(json_data)
-        csv_data = dict_to_csv_string(flat_data)
-
-        # 5. Armamos la respuesta unificada para el endpoint
+        vertical_rows = FHIRTabularTransformer.observation_to_vertical_rows(json_data)        
+        csv_data = list_to_csv_string(vertical_rows)
+        
         return {
             "json_data": json_data,
             "csv_data": csv_data

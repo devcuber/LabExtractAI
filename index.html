@@ -76,6 +76,20 @@
             <div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
             <p id="spinnerText" class="mt-4 text-slate-600 font-medium animate-pulse">Generando formato...</p>
         </div>
+
+        <!-- Vista de Éxito (oculto inicialmente) -->
+        <div id="success-view" class="hidden py-4">
+            <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 mb-3">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900">¡Descarga completada!</h3>
+            <p class="text-slate-500 text-sm mt-1">El archivo se ha procesado y descargado exitosamente.</p>
+            <button type="button" onclick="window.location.reload()" class="mt-6 w-full py-2.5 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+                Aceptar
+            </button>
+        </div>
     </div>
 
     <script>
@@ -116,6 +130,7 @@
         const uiArea = document.getElementById('ui-area');
         const spinner = document.getElementById('spinner');
         const spinnerText = document.getElementById('spinnerText');
+        const successView = document.getElementById('success-view');
         const fileChip = document.getElementById('fileChip');
         const fileNameEl = document.getElementById('fileName');
         const btnAnalyze = document.getElementById('btnAnalyze');
@@ -177,9 +192,9 @@
                     triggerDownload(jsonString, `${baseName}.json`, 'application/json');
                 }
 
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1500);
+                // Ocultar spinner y mostrar la vista de éxito con el botón Aceptar
+                spinner.classList.add('hidden');
+                successView.classList.remove('hidden');
 
             } catch (error) {
                 console.error(error);
