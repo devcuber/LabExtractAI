@@ -4,14 +4,17 @@ from core.base_llm_provider import BaseLLMProvider
 from transformers.fhir_tabular_transformer import FHIRTabularTransformer
 from utils.csv_utils import list_to_csv_string
 from utils.pdf_utils import PdfUtils
+from utils.file_utils import FileTypeDetector, UnsupportedFileTypeError
+
 
 logger = logging.getLogger(__name__)
 
 class LabAnalyzerService:
     def __init__(self, llm_provider: BaseLLMProvider):
         self.llm = llm_provider
+        self.file_type_detector = FileTypeDetector()
 
-    async def extract_data(self, file_content: bytes) -> dict:
+    async def extract_data(self, file_content: bytes, mime_type: str) -> dict:
         prompt = """
         Act as an expert in HL7 FHIR R4. Analyze all laboratory tests 
         from the attached file and create a single FHIR Observation resource 
@@ -20,26 +23,35 @@ class LabAnalyzerService:
         Omit empty fields, do not use dataAbsentReason, and respond strictly 
         with pure JSON only, with no markdown code blocks or additional text.
         """
-        
-        response_text = self.llm.ask_with_file(prompt, file_content)
+
+        # Pasamos el mime_type real (PDF o imagen) al provider
+        response_text = self.llm.ask_with_file(prompt, file_content, mime_type)
         
         clean_json = response_text.replace("```json", "").replace("```", "").strip()
         return json.loads(clean_json)
 
     async def extract_and_transform(self, file_content: bytes, password: str | None = None) -> dict:
         """
-        Orquesta el flujo completo: 
-        1. Si el PDF está protegido con contraseña, lo desbloquea.
-        2. Envía el PDF a extract_data para obtener el JSON del recurso FHIR.
-        3. Genera filas verticales para cada parámetro/componente.
-        4. Convierte la lista de filas a un string CSV vertical.
+        Orquesta el flujo completo:
+        1. Detecta y valida el mime_type real del archivo (PDF o imagen soportada).
+        2. Si es un PDF protegido con contraseña, lo desbloquea.
+        3. Envía el archivo (PDF o imagen) a extract_data para obtener el JSON del recurso FHIR.
+        4. Pasa el JSON al aplanador para generar el CSV tabular dinámico.
         5. Retorna ambos resultados listos para ser consumidos por el endpoint.
         """
+        # 1. Detectamos el mime_type real 
+        mime_type = self.file_type_detector.detect(file_content, None, None)
+        if not self.file_type_detector.is_allowed(mime_type):
+            raise UnsupportedFileTypeError(
+                "Formato no soportado. Sube un PDF, PNG, JPG o WEBP."
+            )
+
+        # 2. Si es un PDF protegido, lo desbloqueamos antes de enviarlo al LLM
         if PdfUtils.is_pdf(file_content):
             logger.info("El usuario subió un archivo reconocido como PDF.")            
             file_content = PdfUtils.unlock_pdf(file_content, password)
             
-        json_data = await self.extract_data(file_content)        
+        json_data = await self.extract_data(file_content, mime_type)
         vertical_rows = FHIRTabularTransformer.observation_to_vertical_rows(json_data)        
         csv_data = list_to_csv_string(vertical_rows)
         

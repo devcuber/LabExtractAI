@@ -27,16 +27,16 @@
                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             </div>
             <h1 class="text-2xl font-bold text-slate-900">Clinical Data</h1>
-            <p class="text-slate-500 mt-2">Extrae datos clínicos estructurados desde archivos en segundos.</p>
+            <p class="text-slate-500 mt-2">Extrae datos clínicos estructurados desde PDFs o imágenes en segundos.</p>
         </div>
 
         <!-- Acción -->
         <div id="ui-area">
             <label for="fileInput" class="cursor-pointer group flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all">
-                <span class="text-blue-600 font-semibold group-hover:scale-105 transition-transform">Seleccionar archivo PDF</span>
+                <span class="text-blue-600 font-semibold group-hover:scale-105 transition-transform">Seleccionar archivo PDF o imagen</span>
                 <span class="text-xs text-slate-400 mt-1">Soporta resultados de laboratorio estándar</span>
             </label>
-            <input type="file" id="fileInput" accept="application/pdf" class="hidden">
+            <input type="file" id="fileInput" accept="application/pdf,image/png,image/jpeg,image/webp" class="hidden">
 
             <!-- Chip con el nombre del archivo seleccionado -->
             <div id="fileChip" class="hidden mt-3 inline-flex items-center gap-2 max-w-full px-3 py-1.5 bg-slate-100 rounded-full text-sm text-slate-600">
