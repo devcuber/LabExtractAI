@@ -3,17 +3,26 @@ import time
 from google import genai
 from google.genai import types
 from core.base_llm_provider import BaseLLMProvider
-
+from google.genai.errors import ServerError as GoogleServerError
 
 class GeminiLLMProvider(BaseLLMProvider):
 
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         self._client = genai.Client(api_key=api_key)
         self._model = model
+        self._system_instruction: str | None = None
+
+    def set_system_instruction(self, instruction: str):
+        """Define el prompt de configuración de sistema o rol general del LLM."""
+        self._system_instruction = instruction
 
     def ask(self, prompt: str) -> str:
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
-        config = types.GenerateContentConfig(tools=[grounding_tool])
+
+        config = types.GenerateContentConfig(
+            tools=[grounding_tool],
+            system_instruction=self._system_instruction
+        )
 
         response = self._client.models.generate_content(
             model=self._model,
@@ -24,34 +33,25 @@ class GeminiLLMProvider(BaseLLMProvider):
         return response.text
 
     def ask_with_file(self, prompt: str, file_bytes: bytes, mime_type: str = "application/pdf") -> str:
-        # Convertimos los bytes a un archivo en memoria (stream)
-        # Esto evita que la SDK intente buscar una ruta en el disco duro
-        file_stream = io.BytesIO(file_bytes)
-        
-        # Le damos un nombre al archivo dentro del objeto para que la API lo reconozca
-        uploaded_file = self._client.files.upload(
-            file=file_stream,
-            config=types.UploadFileConfig(mime_type=mime_type)
+        # Creamos la parte del contenido directamente desde los bytes en memoria
+        file_part = types.Part.from_bytes(
+            data=file_bytes,
+            mime_type=mime_type
+        )
+        config = types.GenerateContentConfig(
+            temperature=0.0,
+            system_instruction=self._system_instruction,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            response_mime_type="application/json"
         )
         try:
-            # Bucle de espera (el resto de tu lógica es correcta)
-            while uploaded_file.state.name == "PROCESSING":
-                print("Esperando a que Gemini procese el PDF...")
-                time.sleep(2)
-                uploaded_file = self._client.files.get(name=uploaded_file.name)
-                
-            if uploaded_file.state.name == "FAILED":
-                raise Exception("El procesamiento del archivo en Google falló.")
-            
+            # Enviamos los bytes y el prompt en una sola petición síncrona e inmediata
             response = self._client.models.generate_content(
                 model=self._model,
-                contents=[uploaded_file, prompt]
-            )
-            return response.text
-        finally:
-            # Esto se ejecuta siempre, garantizando que el archivo se borre de Google al terminar
-            try:
-                self._client.files.delete(name=uploaded_file.name)
-                print("Archivo temporal eliminado de los servidores de Google.")
-            except Exception as e:
-                print(f"No se pudo eliminar el archivo temporal: {e}")
+                contents=[file_part, prompt],
+                config=config,
+            )   
+        except GoogleServerError as e:
+            raise ConnectionError(str(e))
+        
+        return response.text
