@@ -30,19 +30,17 @@ async def analyze_lab(
     password: str | None = Form(None)
 ):
     content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="El archivo está vacío.")
-
     try:
         result = await lab_service.extract_and_transform(content, password=password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except UnsupportedFileTypeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except PdfPasswordRequiredError:
         raise HTTPException(status_code=422, detail="El PDF requiere contraseña.")
     except PdfIncorrectPasswordError:
         raise HTTPException(status_code=422, detail="La contraseña proporcionada es incorrecta.")
-    except ServerError as e:
-        if e.code == 503:
-            raise HTTPException(status_code=503, detail="El modelo está experimentando alta demanda en este momento. Por favor, inténtalo de nuevo en unos minutos.")
-        raise HTTPException(status_code=500, detail=str(e))
+    except ConnectionError as e:
+        # e.args[0] contendrá el mensaje exacto de Google
+        raise HTTPException(status_code=503, detail=str(e))    
     return result
