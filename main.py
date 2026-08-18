@@ -41,5 +41,8 @@ async def analyze_lab(
         raise HTTPException(status_code=422, detail="El PDF requiere contraseña.")
     except PdfIncorrectPasswordError:
         raise HTTPException(status_code=422, detail="La contraseña proporcionada es incorrecta.")
-
+    except ServerError as e:
+        if e.code == 503:
+            raise HTTPException(status_code=503, detail="El modelo está experimentando alta demanda en este momento. Por favor, inténtalo de nuevo en unos minutos.")
+        raise HTTPException(status_code=500, detail=str(e))
     return result
