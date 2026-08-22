@@ -14,23 +14,12 @@ class LabAnalyzerService:
     def __init__(self, llm_provider: BaseLLMProvider):
         self.llm = llm_provider
         self.file_type_detector = FileTypeDetector()
-        system_prompt = """
-        You are an expert in HL7 FHIR R4, specialized in clinical laboratory data structures.
-        Your sole purpose is to analyze medical laboratory reports and map them into a single 
-        valid FHIR Observation resource acting as a general panel.
-
-        STRICT RULES:
-        1. Use the 'component' field to include all quantitative and qualitative results found in the document.
-        2. Omit empty fields completely.
-        3. NEVER use dataAbsentReason.
-        """
-        self.llm.set_system_instruction(system_prompt)
 
     async def extract_data(self, file_content: bytes, mime_type: str) -> dict:
         prompt = "Analyze the attached laboratory report and extract all test results into the FHIR Observation format."
 
         # Pasamos el mime_type real (PDF o imagen) al provider
-        response_text = self.llm.ask_with_file(prompt, file_content, mime_type)
+        response_text = self.llm.ask(prompt, file_content, mime_type)
         return json.loads(response_text)
 
     async def extract_and_transform(self, file_content: bytes, password: str | None = None) -> dict:

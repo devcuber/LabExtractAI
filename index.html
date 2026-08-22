@@ -86,6 +86,15 @@
             </div>
             <h3 class="text-lg font-bold text-slate-900">¡Descarga completada!</h3>
             <p class="text-slate-500 text-sm mt-1">El archivo se ha procesado y descargado exitosamente.</p>
+            
+            <!-- Insignia bonita para el tiempo transcurrido -->
+            <div class="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 border border-blue-100 rounded-full text-xs font-semibold text-blue-700">
+                <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>Tiempo de procesamiento: <strong id="elapsedTime">0.0s</strong></span>
+            </div>
+
             <button type="button" onclick="window.location.reload()" class="mt-6 w-full py-2.5 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">
                 Aceptar
             </button>
@@ -134,6 +143,7 @@
         const fileChip = document.getElementById('fileChip');
         const fileNameEl = document.getElementById('fileName');
         const btnAnalyze = document.getElementById('btnAnalyze');
+        const elapsedTimeEl = document.getElementById('elapsedTime');
 
         function triggerDownload(content, filename, contentType) {
             const blob = new Blob([content], { type: contentType });
@@ -160,6 +170,9 @@
         async function analyzeFile() {
             if (!selectedFile) return;
 
+            // Iniciar cronómetro
+            const startTime = performance.now();
+
             uiArea.classList.add('hidden');
             spinner.classList.remove('hidden');
             spinnerText.textContent = selectedFormat === 'csv' ? 'Generando CSV tabular...' : 'Generando JSON estructurado...';
@@ -182,7 +195,7 @@
                 }
 
                 const data = await response.json();
-                const originalName = selectedFile.name.replace(/\.[^/.]+$/, ''); // quita la extensión original
+                const originalName = selectedFile.name.replace(/\.[^/.]+$/, ''); 
                 const baseName = `${originalName}_clinical_data`;
                 
                 if (selectedFormat === 'csv') {
@@ -192,7 +205,12 @@
                     triggerDownload(jsonString, `${baseName}.json`, 'application/json');
                 }
 
-                // Ocultar spinner y mostrar la vista de éxito con el botón Aceptar
+                // Detener cronómetro y calcular tiempo exacto en segundos (con 1 decimal)
+                const endTime = performance.now();
+                const durationSeconds = ((endTime - startTime) / 1000).toFixed(1);
+                elapsedTimeEl.textContent = `${durationSeconds}s`;
+
+                // Ocultar spinner y mostrar la vista de éxito
                 spinner.classList.add('hidden');
                 successView.classList.remove('hidden');
 

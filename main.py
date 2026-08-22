@@ -2,6 +2,7 @@ import logging
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
+from google.genai import types
 from providers.gemini_provider import GeminiLLMProvider
 from providers.mock_llm_provider import MockLLMProvider
 from services.lab_service import LabAnalyzerService
@@ -14,7 +15,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 
 app = FastAPI()
 load_dotenv()
-llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"))
+
+system_prompt = """
+You are an expert in HL7 FHIR R4, specialized in clinical laboratory data structures.
+Your sole purpose is to analyze medical laboratory reports and map them into a single 
+valid FHIR Observation resource acting as a general panel.
+
+STRICT RULES:
+1. Use the 'component' field to include all quantitative and qualitative results found in the document.
+2. Omit empty fields completely.
+3. NEVER use dataAbsentReason.
+"""
+
+gemini_config = types.GenerateContentConfig(
+    temperature=0.0,
+    system_instruction=system_prompt,
+    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+    response_mime_type="application/json",
+    thinking_config=types.ThinkingConfig(thinking_budget=0),
+)
+
+llm_provider = GeminiLLMProvider(api_key=os.getenv("GOOGLE_API_KEY"), config=gemini_config)
 #llm_provider = MockLLMProvider() #ACTIVAR PARA PRUEBAS LOCALES SIN CONSUMIR LA API DE GOOGLE
 lab_service = LabAnalyzerService(llm_provider=llm_provider)
 
