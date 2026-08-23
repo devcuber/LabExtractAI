@@ -19,6 +19,21 @@ class FHIRTabularTransformer:
         return ""
 
     @classmethod
+    def _extract_original_text(cls, code_dict: dict) -> str:
+        """
+        Busca el texto original tal como lo escribió el laboratorio,
+        sin normalizar (campo 'text' de CodeableConcept).
+        """
+        if not isinstance(code_dict, dict):
+            return ""
+
+        text = code_dict.get("text")
+        if isinstance(text, str):
+            return text
+
+        return ""
+
+    @classmethod
     def _extract_fhir_value(cls, container: dict) -> str:
         for key, val in container.items():
             if not key.startswith("value"):
@@ -30,7 +45,7 @@ class FHIRTabularTransformer:
                 return f"{v} {u}".strip()
 
             elif key == "valueCodeableConcept" and isinstance(val, dict):
-                return cls._extract_loinc_display(val)
+                return cls._extract_loinc_display(val) or cls._extract_original_text(val)
 
             elif isinstance(val, (str, int, float, bool)):
                 return str(val)
@@ -46,7 +61,7 @@ class FHIRTabularTransformer:
         results = []
         for interp in interps:
             if isinstance(interp, dict):
-                text = cls._extract_loinc_display(interp)
+                text = cls._extract_loinc_display(interp) or cls._extract_original_text(interp)
                 if text:
                     results.append(text)
         return " - ".join(results)
@@ -83,35 +98,50 @@ class FHIRTabularTransformer:
     @classmethod
     def observation_to_vertical_rows(cls, data: dict) -> list[dict]:
         """
-        Extrae metadatos globales y los resultados (raíz o componentes) 
+        Extrae metadatos globales y los resultados (raíz o componentes)
         en una lista de diccionarios para formato CSV vertical.
+
+        Columnas: Parametro Origen, Parametro LOINC, Valor, Rango, Interpretacion.
         """
         rows = []
 
+        def _empty_row(parametro_origen: str, valor: str = "") -> dict:
+            return {
+                "Parametro Origen": parametro_origen,
+                "Parametro LOINC": "",
+                "Valor": valor,
+                "Rango": "",
+                "Interpretacion": "",
+            }
+
         # 1. Metadatos globales (se insertan como filas)
         if "id" in data:
-            rows.append({"Parametro": "Observation ID", "Valor": data["id"], "Rango": "", "Interpretacion": ""})
+            rows.append(_empty_row("Observation ID", data["id"]))
         if "status" in data:
-            rows.append({"Parametro": "Status", "Valor": data["status"], "Rango": "", "Interpretacion": ""})
+            rows.append(_empty_row("Status", data["status"]))
         if "effectiveDateTime" in data:
-            rows.append({"Parametro": "Effective Date", "Valor": data["effectiveDateTime"], "Rango": "", "Interpretacion": ""})
-        
+            rows.append(_empty_row("Effective Date", data["effectiveDateTime"]))
+
         if "subject" in data and isinstance(data["subject"], dict):
             name = data["subject"].get("display") or data["subject"].get("reference", "")
-            rows.append({"Parametro": "Patient Name", "Valor": name, "Rango": "", "Interpretacion": ""})
+            rows.append(_empty_row("Patient Name", name))
 
         # Interpretación global (como un parámetro sin valor)
         global_interp = cls._extract_interpretation(data)
         if global_interp:
-            rows.append({"Parametro": "Global Interpretation", "Valor": "", "Rango": "", "Interpretacion": global_interp})
+            row = _empty_row("Global Interpretation")
+            row["Interpretacion"] = global_interp
+            rows.append(row)
 
         # 2. Caso A: Observación simple en la raíz
-        root_display = cls._extract_loinc_display(data.get("code", {}))
-        root_value = cls._extract_fhir_value(data)
-        if root_display:
+        root_code = data.get("code", {})
+        root_origen = cls._extract_original_text(root_code)
+        root_loinc = cls._extract_loinc_display(root_code)
+        if root_origen or root_loinc:
             rows.append({
-                "Parametro": root_display,
-                "Valor": root_value,
+                "Parametro Origen": root_origen,
+                "Parametro LOINC": root_loinc,
+                "Valor": cls._extract_fhir_value(data),
                 "Rango": cls._extract_reference_range(data),
                 "Interpretacion": cls._extract_interpretation(data)
             })
@@ -123,12 +153,16 @@ class FHIRTabularTransformer:
                 if not isinstance(comp, dict):
                     continue
 
-                param_display = cls._extract_loinc_display(comp.get("code", {}))
-                if not param_display:
+                comp_code = comp.get("code", {})
+                param_origen = cls._extract_original_text(comp_code)
+                param_loinc = cls._extract_loinc_display(comp_code)
+
+                if not param_origen and not param_loinc:
                     continue
 
                 rows.append({
-                    "Parametro": param_display,
+                    "Parametro Origen": param_origen,
+                    "Parametro LOINC": param_loinc,
                     "Valor": cls._extract_fhir_value(comp),
                     "Rango": cls._extract_reference_range(comp),
                     "Interpretacion": cls._extract_interpretation(comp)
