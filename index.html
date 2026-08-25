@@ -74,7 +74,7 @@
         <!-- Spinner (oculto inicialmente) -->
         <div id="spinner" class="hidden py-8">
             <div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
-            <p id="spinnerText" class="mt-4 text-slate-600 font-medium animate-pulse">Generando formato...</p>
+            <p id="spinnerText" class="mt-4 text-slate-600 font-medium animate-pulse">Generando formatos...</p>
         </div>
 
         <!-- Vista de Éxito (oculto inicialmente) -->
@@ -85,7 +85,7 @@
                 </svg>
             </div>
             <h3 class="text-lg font-bold text-slate-900">¡Descarga completada!</h3>
-            <p class="text-slate-500 text-sm mt-1">El archivo se ha procesado y descargado exitosamente.</p>
+            <p class="text-slate-500 text-sm mt-1">Los archivos CSV y JSON se han descargado exitosamente.</p>
             
             <!-- Insignia bonita para el tiempo transcurrido -->
             <div class="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 border border-blue-100 rounded-full text-xs font-semibold text-blue-700">
@@ -175,7 +175,7 @@
 
             uiArea.classList.add('hidden');
             spinner.classList.remove('hidden');
-            spinnerText.textContent = selectedFormat === 'csv' ? 'Generando CSV tabular...' : 'Generando JSON estructurado...';
+            spinnerText.textContent = 'Generando formatos CSV y JSON...';
 
             const formData = new FormData();
             formData.append('file', selectedFile);
@@ -198,12 +198,13 @@
                 const originalName = selectedFile.name.replace(/\.[^/.]+$/, ''); 
                 const baseName = `${originalName}_clinical_data`;
                 
-                if (selectedFormat === 'csv') {
-                    triggerDownload(data.csv_data, `${baseName}.csv`, 'text/csv;charset=utf-8;');
-                } else {
+                // DESCARGA MÚLTIPLE CON RETRASO: Evita que el navegador bloquee la segunda descarga
+                triggerDownload(data.csv_data, `${baseName}.csv`, 'text/csv;charset=utf-8;');
+                
+                setTimeout(() => {
                     const jsonString = JSON.stringify(data.json_data, null, 2);
                     triggerDownload(jsonString, `${baseName}.json`, 'application/json');
-                }
+                }, 300);
 
                 // Detener cronómetro y calcular tiempo exacto en segundos (con 1 decimal)
                 const endTime = performance.now();
