@@ -19,6 +19,25 @@ class FHIRTabularTransformer:
         return ""
 
     @classmethod
+    def _extract_loinc_code(cls, code_dict: dict) -> str:
+        """
+        Busca el código oficial (code) del estándar LOINC
+        """
+        if not isinstance(code_dict, dict):
+            return ""
+
+        codings = code_dict.get("coding", [])
+        if isinstance(codings, list):
+            for coding in codings:
+                if isinstance(coding, dict):
+                    # Opcionalmente se puede validar que system sea 'http://loinc.org'
+                    code_val = coding.get("code")
+                    if code_val:
+                        return str(code_val)
+
+        return ""
+
+    @classmethod
     def _extract_original_text(cls, code_dict: dict) -> str:
         """
         Busca el texto original tal como lo escribió el laboratorio,
@@ -98,55 +117,80 @@ class FHIRTabularTransformer:
     @classmethod
     def observation_to_vertical_rows(cls, data: dict) -> list[dict]:
         """
-        Extrae metadatos globales y los resultados (raíz o componentes)
-        en una lista de diccionarios para formato CSV vertical.
+        Extrae metadatos globales y los resultados (raíz o componentes) en una
+        lista de diccionarios para formato CSV vertical.
 
-        Columnas: Parametro Origen, Parametro LOINC, Valor, Rango, Interpretacion.
+        Estructura del archivo resultante (en orden):
+            1. Status
+            2. Effective Date
+            3. Patient Name
+            4. Fila de encabezado literal (Texto Original, Código LOINC,
+               Descripción LOINC, Valor, Rango de Referencia, Interpretación)
+            5. Interpretación global (si existe)
+            6. Observación raíz (si existe)
+            7. Componentes del panel
+
+        Nota: esta lista debe pasarse a `list_to_csv_string(rows, write_header=False)`
+        para que csv.DictWriter no agregue un encabezado automático adicional
+        antes de "Status".
         """
-        rows = []
+        HEADERS = [
+            "Texto Original",
+            "Código LOINC",
+            "Descripción LOINC",
+            "Valor",
+            "Rango de Referencia",
+            "Interpretación",
+        ]
 
-        def _empty_row(parametro_origen: str, valor: str = "") -> dict:
+        def _empty_row(texto_original: str, valor: str = "") -> dict:
             return {
-                "Parametro Origen": parametro_origen,
-                "Parametro LOINC": "",
+                "Texto Original": texto_original,
+                "Código LOINC": "",
+                "Descripción LOINC": "",
                 "Valor": valor,
-                "Rango": "",
-                "Interpretacion": "",
+                "Rango de Referencia": "",
+                "Interpretación": "",
             }
 
-        # 1. Metadatos globales (se insertan como filas)
-        if "id" in data:
-            rows.append(_empty_row("Observation ID", data["id"]))
-        if "status" in data:
-            rows.append(_empty_row("Status", data["status"]))
-        if "effectiveDateTime" in data:
-            rows.append(_empty_row("Effective Date", data["effectiveDateTime"]))
+        result = []
 
+        # 1. Metadatos globales (Status, Effective Date, Patient Name)
+        if "status" in data:
+            result.append(_empty_row("Status", data["status"]))
+        if "effectiveDateTime" in data:
+            result.append(_empty_row("Effective Date", data["effectiveDateTime"]))
         if "subject" in data and isinstance(data["subject"], dict):
             name = data["subject"].get("display") or data["subject"].get("reference", "")
-            rows.append(_empty_row("Patient Name", name))
+            result.append(_empty_row("Patient Name", name))
 
-        # Interpretación global (como un parámetro sin valor)
+        # 2. Fila de encabezado literal, insertada justo después de los metadatos
+        result.append({col: col for col in HEADERS})
+
+        # 3. Interpretación global (como fila de datos, ya después del encabezado)
         global_interp = cls._extract_interpretation(data)
         if global_interp:
             row = _empty_row("Global Interpretation")
-            row["Interpretacion"] = global_interp
-            rows.append(row)
+            row["Interpretación"] = global_interp
+            result.append(row)
 
-        # 2. Caso A: Observación simple en la raíz
+        # 4. Caso A: Observación simple en la raíz
         root_code = data.get("code", {})
-        root_origen = cls._extract_original_text(root_code)
-        root_loinc = cls._extract_loinc_display(root_code)
-        if root_origen or root_loinc:
-            rows.append({
-                "Parametro Origen": root_origen,
-                "Parametro LOINC": root_loinc,
+        root_texto = cls._extract_original_text(root_code)
+        root_code_val = cls._extract_loinc_code(root_code)
+        root_display = cls._extract_loinc_display(root_code)
+
+        if root_texto or root_display or root_code_val:
+            result.append({
+                "Texto Original": root_texto,
+                "Código LOINC": root_code_val,
+                "Descripción LOINC": root_display,
                 "Valor": cls._extract_fhir_value(data),
-                "Rango": cls._extract_reference_range(data),
-                "Interpretacion": cls._extract_interpretation(data)
+                "Rango de Referencia": cls._extract_reference_range(data),
+                "Interpretación": cls._extract_interpretation(data),
             })
 
-        # 3. Caso B: Componentes del panel
+        # 5. Caso B: Componentes del panel
         components = data.get("component", [])
         if isinstance(components, list):
             for comp in components:
@@ -154,21 +198,23 @@ class FHIRTabularTransformer:
                     continue
 
                 comp_code = comp.get("code", {})
-                param_origen = cls._extract_original_text(comp_code)
-                param_loinc = cls._extract_loinc_display(comp_code)
+                param_texto = cls._extract_original_text(comp_code)
+                param_code_val = cls._extract_loinc_code(comp_code)
+                param_display = cls._extract_loinc_display(comp_code)
 
-                if not param_origen and not param_loinc:
+                if not param_texto and not param_display and not param_code_val:
                     continue
 
-                rows.append({
-                    "Parametro Origen": param_origen,
-                    "Parametro LOINC": param_loinc,
+                result.append({
+                    "Texto Original": param_texto,
+                    "Código LOINC": param_code_val,
+                    "Descripción LOINC": param_display,
                     "Valor": cls._extract_fhir_value(comp),
-                    "Rango": cls._extract_reference_range(comp),
-                    "Interpretacion": cls._extract_interpretation(comp)
+                    "Rango de Referencia": cls._extract_reference_range(comp),
+                    "Interpretación": cls._extract_interpretation(comp),
                 })
 
-        return rows
+        return result
 
     @classmethod
     def flatten_fhir_to_dict(cls, data: dict) -> dict:

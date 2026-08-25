@@ -67,7 +67,7 @@ class LabAnalyzerService:
 
         # 4. Aplanamiento y transformación a CSV
         vertical_rows = FHIRTabularTransformer.observation_to_vertical_rows(json_data)        
-        csv_data = list_to_csv_string(vertical_rows)
+        csv_data = list_to_csv_string(vertical_rows, write_header=False)
         
         elapsed = time.perf_counter() - step_time
         logger.info(f"[PERF] 4. Transformación a CSV completada en {elapsed:.4f}s")
