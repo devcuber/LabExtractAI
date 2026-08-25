@@ -19,6 +19,40 @@ class FHIRTabularTransformer:
         return ""
 
     @classmethod
+    def _extract_loinc_code(cls, code_dict: dict) -> str:
+        """
+        Busca el código oficial (code) del estándar LOINC
+        """
+        if not isinstance(code_dict, dict):
+            return ""
+
+        codings = code_dict.get("coding", [])
+        if isinstance(codings, list):
+            for coding in codings:
+                if isinstance(coding, dict):
+                    # Opcionalmente se puede validar que system sea 'http://loinc.org'
+                    code_val = coding.get("code")
+                    if code_val:
+                        return str(code_val)
+
+        return ""
+
+    @classmethod
+    def _extract_original_text(cls, code_dict: dict) -> str:
+        """
+        Busca el texto original tal como lo escribió el laboratorio,
+        sin normalizar (campo 'text' de CodeableConcept).
+        """
+        if not isinstance(code_dict, dict):
+            return ""
+
+        text = code_dict.get("text")
+        if isinstance(text, str):
+            return text
+
+        return ""
+
+    @classmethod
     def _extract_fhir_value(cls, container: dict) -> str:
         for key, val in container.items():
             if not key.startswith("value"):
@@ -30,7 +64,7 @@ class FHIRTabularTransformer:
                 return f"{v} {u}".strip()
 
             elif key == "valueCodeableConcept" and isinstance(val, dict):
-                return cls._extract_loinc_display(val)
+                return cls._extract_loinc_display(val) or cls._extract_original_text(val)
 
             elif isinstance(val, (str, int, float, bool)):
                 return str(val)
@@ -46,7 +80,7 @@ class FHIRTabularTransformer:
         results = []
         for interp in interps:
             if isinstance(interp, dict):
-                text = cls._extract_loinc_display(interp)
+                text = cls._extract_loinc_display(interp) or cls._extract_original_text(interp)
                 if text:
                     results.append(text)
         return " - ".join(results)
@@ -83,58 +117,104 @@ class FHIRTabularTransformer:
     @classmethod
     def observation_to_vertical_rows(cls, data: dict) -> list[dict]:
         """
-        Extrae metadatos globales y los resultados (raíz o componentes) 
-        en una lista de diccionarios para formato CSV vertical.
-        """
-        rows = []
+        Extrae metadatos globales y los resultados (raíz o componentes) en una
+        lista de diccionarios para formato CSV vertical.
 
-        # 1. Metadatos globales (se insertan como filas)
-        if "id" in data:
-            rows.append({"Parametro": "Observation ID", "Valor": data["id"], "Rango": "", "Interpretacion": ""})
+        Estructura del archivo resultante (en orden):
+            1. Status
+            2. Effective Date
+            3. Patient Name
+            4. Fila de encabezado literal (Texto Original, Código LOINC,
+               Descripción LOINC, Valor, Rango de Referencia, Interpretación)
+            5. Interpretación global (si existe)
+            6. Observación raíz (si existe)
+            7. Componentes del panel
+
+        Nota: esta lista debe pasarse a `list_to_csv_string(rows, write_header=False)`
+        para que csv.DictWriter no agregue un encabezado automático adicional
+        antes de "Status".
+        """
+        HEADERS = [
+            "Texto Original",
+            "Código LOINC",
+            "Descripción LOINC",
+            "Valor",
+            "Rango de Referencia",
+            "Interpretación",
+        ]
+
+        def _empty_row(texto_original: str, valor: str = "") -> dict:
+            return {
+                "Texto Original": texto_original,
+                "Código LOINC": "",
+                "Descripción LOINC": "",
+                "Valor": valor,
+                "Rango de Referencia": "",
+                "Interpretación": "",
+            }
+
+        result = []
+
+        # 1. Metadatos globales (Status, Effective Date, Patient Name)
         if "status" in data:
-            rows.append({"Parametro": "Status", "Valor": data["status"], "Rango": "", "Interpretacion": ""})
+            result.append(_empty_row("Status", data["status"]))
         if "effectiveDateTime" in data:
-            rows.append({"Parametro": "Effective Date", "Valor": data["effectiveDateTime"], "Rango": "", "Interpretacion": ""})
-        
+            result.append(_empty_row("Effective Date", data["effectiveDateTime"]))
         if "subject" in data and isinstance(data["subject"], dict):
             name = data["subject"].get("display") or data["subject"].get("reference", "")
-            rows.append({"Parametro": "Patient Name", "Valor": name, "Rango": "", "Interpretacion": ""})
+            result.append(_empty_row("Patient Name", name))
 
-        # Interpretación global (como un parámetro sin valor)
+        # 2. Fila de encabezado literal, insertada justo después de los metadatos
+        result.append({col: col for col in HEADERS})
+
+        # 3. Interpretación global (como fila de datos, ya después del encabezado)
         global_interp = cls._extract_interpretation(data)
         if global_interp:
-            rows.append({"Parametro": "Global Interpretation", "Valor": "", "Rango": "", "Interpretacion": global_interp})
+            row = _empty_row("Global Interpretation")
+            row["Interpretación"] = global_interp
+            result.append(row)
 
-        # 2. Caso A: Observación simple en la raíz
-        root_display = cls._extract_loinc_display(data.get("code", {}))
-        root_value = cls._extract_fhir_value(data)
-        if root_display:
-            rows.append({
-                "Parametro": root_display,
-                "Valor": root_value,
-                "Rango": cls._extract_reference_range(data),
-                "Interpretacion": cls._extract_interpretation(data)
+        # 4. Caso A: Observación simple en la raíz
+        root_code = data.get("code", {})
+        root_texto = cls._extract_original_text(root_code)
+        root_code_val = cls._extract_loinc_code(root_code)
+        root_display = cls._extract_loinc_display(root_code)
+
+        if root_texto or root_display or root_code_val:
+            result.append({
+                "Texto Original": root_texto,
+                "Código LOINC": root_code_val,
+                "Descripción LOINC": root_display,
+                "Valor": cls._extract_fhir_value(data),
+                "Rango de Referencia": cls._extract_reference_range(data),
+                "Interpretación": cls._extract_interpretation(data),
             })
 
-        # 3. Caso B: Componentes del panel
+        # 5. Caso B: Componentes del panel
         components = data.get("component", [])
         if isinstance(components, list):
             for comp in components:
                 if not isinstance(comp, dict):
                     continue
 
-                param_display = cls._extract_loinc_display(comp.get("code", {}))
-                if not param_display:
+                comp_code = comp.get("code", {})
+                param_texto = cls._extract_original_text(comp_code)
+                param_code_val = cls._extract_loinc_code(comp_code)
+                param_display = cls._extract_loinc_display(comp_code)
+
+                if not param_texto and not param_display and not param_code_val:
                     continue
 
-                rows.append({
-                    "Parametro": param_display,
+                result.append({
+                    "Texto Original": param_texto,
+                    "Código LOINC": param_code_val,
+                    "Descripción LOINC": param_display,
                     "Valor": cls._extract_fhir_value(comp),
-                    "Rango": cls._extract_reference_range(comp),
-                    "Interpretacion": cls._extract_interpretation(comp)
+                    "Rango de Referencia": cls._extract_reference_range(comp),
+                    "Interpretación": cls._extract_interpretation(comp),
                 })
 
-        return rows
+        return result
 
     @classmethod
     def flatten_fhir_to_dict(cls, data: dict) -> dict:
