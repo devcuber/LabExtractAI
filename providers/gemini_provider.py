@@ -27,13 +27,18 @@ class GeminiLLMProvider(BaseLLMProvider):
             )
             contents = [file_part, prompt]
 
-        try:
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=contents,
-                config=self._config,
-            )
-        except GoogleServerError as e:
-            raise ConnectionError(str(e))
+        max_retries = 5
+        retry_delay_seconds = 5
 
-        return response.text
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=contents,
+                    config=self._config,
+                )
+                return response.text
+            except GoogleServerError as e:
+                if attempt == max_retries:
+                    raise ConnectionError(str(e))
+                time.sleep(retry_delay_seconds)
