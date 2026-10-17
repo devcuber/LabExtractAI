@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -15,6 +17,7 @@ from providers.gemini_provider import GeminiLLMProvider
 from providers.mock_llm_provider import MockLLMProvider
 from repositories.lab_extraction_request_repository import LabExtractionRequestRepository
 from services.lab_service import LabAnalyzerService
+from workers.lab_extraction_worker import LabExtractionWorker
 from utils.file_utils import UnsupportedFileTypeError
 from utils.pdf_utils import PdfIncorrectPasswordError, PdfPasswordRequiredError
 
@@ -85,9 +88,25 @@ async def lifespan(application: FastAPI):
         llm_provider=llm_provider,
         extraction_request_repository=repository,
     )
+    application.state.lab_extraction_queue = asyncio.Queue()
+    application.state.lab_extraction_worker = LabExtractionWorker(
+        queue=application.state.lab_extraction_queue,
+        repository=repository,
+        lab_service=application.state.lab_service,
+    )
+    await repository.reset_recent_processing_to_pending()
+    for request_id in await repository.list_recent_pending_ids():
+        application.state.lab_extraction_queue.put_nowait(request_id)
+    application.state.lab_extraction_worker_task = asyncio.create_task(
+        application.state.lab_extraction_worker.run(),
+        name="lab-extraction-worker",
+    )
     try:
         yield
     finally:
+        application.state.lab_extraction_worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await application.state.lab_extraction_worker_task
         await pool.close()
 
 
@@ -137,6 +156,7 @@ async def analyze_lab(
 
 @app.post("/api/v1/lab-extraction-requests", status_code=status.HTTP_201_CREATED)
 async def create_lab_extraction_request(
+    http_request: Request,
     file: UploadFile = File(...),
     password: str | None = Form(None),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
@@ -149,6 +169,7 @@ async def create_lab_extraction_request(
             original_filename=file.filename,
             password=password,
         )
+        await http_request.app.state.lab_extraction_queue.put(request.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except UnsupportedFileTypeError as e:

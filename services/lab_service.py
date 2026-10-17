@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -40,7 +41,7 @@ class LabAnalyzerService:
         prompt = "Analyze the attached laboratory report and extract all test results into the FHIR Observation format."
 
         # Pasamos el mime_type real (PDF o imagen) al provider
-        response_text = self.llm.ask(prompt, file_content, mime_type)
+        response_text = await asyncio.to_thread(self.llm.ask, prompt, file_content, mime_type)
         return json.loads(response_text)
 
     async def extract_and_transform(self, file_content: bytes, password: str | None = None) -> dict:

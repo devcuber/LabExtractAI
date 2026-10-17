@@ -86,6 +86,72 @@ class LabExtractionRequestRepository(
 
         return LabExtractionRequest.model_validate(row) if row else None
 
+    async def claim_pending(self, entity_id: UUID) -> LabExtractionRequest | None:
+        """Cambia atómicamente una solicitud pending a processing y la devuelve."""
+        query = f"""
+            UPDATE lab_extraction_requests
+            SET status = %s
+            WHERE id = %s AND status = %s
+            RETURNING {self._FULL_COLUMNS};
+        """
+
+        async with self._pool.connection() as connection:
+            try:
+                async with connection.cursor(row_factory=dict_row) as cursor:
+                    await cursor.execute(
+                        query,
+                        (
+                            LabExtractionStatus.PROCESSING.value,
+                            entity_id,
+                            LabExtractionStatus.PENDING.value,
+                        ),
+                    )
+                    row = await cursor.fetchone()
+                await connection.commit()
+            except Exception:
+                await connection.rollback()
+                raise
+
+        return LabExtractionRequest.model_validate(row) if row else None
+
+    async def reset_recent_processing_to_pending(self) -> None:
+        """Recupera solicitudes interrumpidas durante las últimas 24 horas."""
+        query = """
+            UPDATE lab_extraction_requests
+            SET status = %s
+            WHERE status = %s
+              AND created_at >= NOW() - INTERVAL '24 hours';
+        """
+
+        async with self._pool.connection() as connection:
+            try:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        query,
+                        (LabExtractionStatus.PENDING.value, LabExtractionStatus.PROCESSING.value),
+                    )
+                await connection.commit()
+            except Exception:
+                await connection.rollback()
+                raise
+
+    async def list_recent_pending_ids(self) -> list[UUID]:
+        """Devuelve los pending recuperables en orden cronológico FIFO."""
+        query = """
+            SELECT id
+            FROM lab_extraction_requests
+            WHERE status = %s
+              AND created_at >= NOW() - INTERVAL '24 hours'
+            ORDER BY created_at ASC;
+        """
+
+        async with self._pool.connection() as connection:
+            async with connection.cursor(row_factory=dict_row) as cursor:
+                await cursor.execute(query, (LabExtractionStatus.PENDING.value,))
+                rows = await cursor.fetchall()
+
+        return [row["id"] for row in rows]
+
     async def list(self) -> list[LabExtractionRequestListItem]:
         query = """
             SELECT
