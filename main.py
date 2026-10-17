@@ -10,6 +10,7 @@ from google.genai import types
 from psycopg_pool import AsyncConnectionPool
 
 from models.fhir_observation import FhirObservation
+from models.lab_extraction_request import LabExtractionRequestListItem
 from providers.gemini_provider import GeminiLLMProvider
 from providers.mock_llm_provider import MockLLMProvider
 from repositories.lab_extraction_request_repository import LabExtractionRequestRepository
@@ -164,3 +165,9 @@ async def create_lab_extraction_request(
         "status": request.status.value,
         "created_at": request.created_at,
     }
+
+@app.get("/api/v1/lab-extraction-requests", response_model=list[LabExtractionRequestListItem])
+async def list_lab_extraction_requests(
+    lab_service: LabAnalyzerService = Depends(get_lab_service),
+):
+    return await lab_service.list_extraction_requests()

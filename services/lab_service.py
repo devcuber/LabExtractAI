@@ -143,3 +143,7 @@ class LabAnalyzerService:
             original_filename=validated_filename,
         )
         return await self.extraction_request_repository.create(request)
+
+    async def list_extraction_requests(self) -> list[LabExtractionRequestListItem]:
+        """Obtiene la lista completa de solicitudes de extracción ordenadas por fecha de creación."""
+        return await self.extraction_request_repository.list()
