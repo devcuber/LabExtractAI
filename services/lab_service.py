@@ -10,6 +10,7 @@ from models.lab_extraction_request import (
     LabExtractionRequestCreate,
     LabExtractionRequestListItem,
     LabExtractionRequestUpdate,
+    LabExtractionStatus,
 )
 from repositories.i_repository import IRepository
 from transformers.fhir_tabular_transformer import FHIRTabularTransformer
@@ -19,6 +20,26 @@ from utils.pdf_utils import PdfUtils
 
 
 logger = logging.getLogger(__name__)
+
+
+class ExtractionRequestNotFoundError(Exception):
+    """La solicitud de extracción no existe."""
+
+
+class ExtractionResultNotReadyError(Exception):
+    def __init__(self, status: LabExtractionStatus) -> None:
+        self.status = status
+        super().__init__(f"La extracción aún no está completada: {status.value}.")
+
+
+class ExtractionRequestFailedError(Exception):
+    def __init__(self, error_message: str | None) -> None:
+        self.error_message = error_message
+        super().__init__("La extracción falló.")
+
+
+class ExtractionResultMissingError(Exception):
+    """Una solicitud completada no contiene resultado persistido."""
 
 
 class LabAnalyzerService:
@@ -144,6 +165,35 @@ class LabAnalyzerService:
             original_filename=validated_filename,
         )
         return await self.extraction_request_repository.create(request)
+
+    async def get_extraction_result(self, request_id: UUID) -> dict | list:
+        """Obtiene el resultado FHIR de una solicitud completada."""
+        request = await self.extraction_request_repository.get_by_id(request_id)
+        if request is None:
+            raise ExtractionRequestNotFoundError()
+        if request.status in (LabExtractionStatus.PENDING, LabExtractionStatus.PROCESSING):
+            raise ExtractionResultNotReadyError(request.status)
+        if request.status == LabExtractionStatus.FAILED:
+            raise ExtractionRequestFailedError(request.error_message)
+        if request.result_json is None:
+            raise ExtractionResultMissingError()
+        return request.result_json
+
+    async def get_extraction_csv(self, request_id: UUID) -> tuple[str, str]:
+        """Genera el CSV descargable desde el resultado FHIR persistido."""
+        request = await self.extraction_request_repository.get_by_id(request_id)
+        if request is None:
+            raise ExtractionRequestNotFoundError()
+        if request.status in (LabExtractionStatus.PENDING, LabExtractionStatus.PROCESSING):
+            raise ExtractionResultNotReadyError(request.status)
+        if request.status == LabExtractionStatus.FAILED:
+            raise ExtractionRequestFailedError(request.error_message)
+        if request.result_json is None:
+            raise ExtractionResultMissingError()
+
+        vertical_rows = FHIRTabularTransformer.observation_to_vertical_rows(request.result_json)
+        csv_data = list_to_csv_string(vertical_rows, write_header=False)
+        return csv_data, request.original_filename
 
     async def list_extraction_requests(self) -> list[LabExtractionRequestListItem]:
         """Obtiene la lista completa de solicitudes de extracción ordenadas por fecha de creación."""

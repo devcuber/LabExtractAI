@@ -5,9 +5,13 @@ import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
+from urllib.parse import quote
+from pathlib import Path
+from uuid import UUID
+
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from google.genai import types
 from psycopg_pool import AsyncConnectionPool
 
@@ -16,7 +20,13 @@ from models.lab_extraction_request import LabExtractionRequestListItem
 from providers.gemini_provider import GeminiLLMProvider
 from providers.mock_llm_provider import MockLLMProvider
 from repositories.lab_extraction_request_repository import LabExtractionRequestRepository
-from services.lab_service import LabAnalyzerService
+from services.lab_service import (
+    ExtractionRequestFailedError,
+    ExtractionRequestNotFoundError,
+    ExtractionResultMissingError,
+    ExtractionResultNotReadyError,
+    LabAnalyzerService,
+)
 from workers.lab_extraction_worker import LabExtractionWorker
 from utils.file_utils import UnsupportedFileTypeError
 from utils.pdf_utils import PdfIncorrectPasswordError, PdfPasswordRequiredError
@@ -186,6 +196,82 @@ async def create_lab_extraction_request(
         "status": request.status.value,
         "created_at": request.created_at,
     }
+
+@app.get("/api/v1/lab-extraction-requests/{request_id}/result")
+async def get_lab_extraction_result(
+    request_id: UUID,
+    lab_service: LabAnalyzerService = Depends(get_lab_service),
+):
+    try:
+        return await lab_service.get_extraction_result(request_id)
+    except ExtractionRequestNotFoundError:
+        raise HTTPException(status_code=404, detail="La solicitud de extracción no existe.")
+    except ExtractionResultNotReadyError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "La extracción aún no está completada.",
+                "status": error.status.value,
+            },
+        )
+    except ExtractionRequestFailedError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "La extracción falló.",
+                "error": error.error_message,
+            },
+        )
+    except ExtractionResultMissingError:
+        raise HTTPException(
+            status_code=500,
+            detail="La solicitud está completada, pero no contiene resultado.",
+        )
+
+
+@app.get("/api/v1/lab-extraction-requests/{request_id}/csv")
+async def download_lab_extraction_csv(
+    request_id: UUID,
+    lab_service: LabAnalyzerService = Depends(get_lab_service),
+):
+    try:
+        csv_data, original_filename = await lab_service.get_extraction_csv(request_id)
+    except ExtractionRequestNotFoundError:
+        raise HTTPException(status_code=404, detail="La solicitud de extracción no existe.")
+    except ExtractionResultNotReadyError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "La extracción aún no está completada.",
+                "status": error.status.value,
+            },
+        )
+    except ExtractionRequestFailedError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "La extracción falló.",
+                "error": error.error_message,
+            },
+        )
+    except ExtractionResultMissingError:
+        raise HTTPException(
+            status_code=500,
+            detail="La solicitud está completada, pero no contiene resultado.",
+        )
+
+    filename = f"{Path(original_filename).stem}_clinical_data.csv"
+    encoded_filename = quote(filename)
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; filename*=UTF-8\'\'{encoded_filename}'
+            ),
+        },
+    )
+
 
 @app.get("/api/v1/lab-extraction-requests", response_model=list[LabExtractionRequestListItem])
 async def list_lab_extraction_requests(
