@@ -1,18 +1,39 @@
 import json
 import logging
 import time
+from uuid import UUID
+
 from core.base_llm_provider import BaseLLMProvider
+from models.lab_extraction_request import (
+    LabExtractionRequest,
+    LabExtractionRequestCreate,
+    LabExtractionRequestListItem,
+    LabExtractionRequestUpdate,
+)
+from repositories.i_repository import IRepository
 from transformers.fhir_tabular_transformer import FHIRTabularTransformer
 from utils.csv_utils import list_to_csv_string
-from utils.pdf_utils import PdfUtils
 from utils.file_utils import FileTypeDetector, UnsupportedFileTypeError
+from utils.pdf_utils import PdfUtils
 
 
 logger = logging.getLogger(__name__)
 
+
 class LabAnalyzerService:
-    def __init__(self, llm_provider: BaseLLMProvider):
+    def __init__(
+        self,
+        llm_provider: BaseLLMProvider,
+        extraction_request_repository: IRepository[
+            LabExtractionRequest,
+            LabExtractionRequestCreate,
+            LabExtractionRequestUpdate,
+            UUID,
+            LabExtractionRequestListItem,
+        ],
+    ):
         self.llm = llm_provider
+        self.extraction_request_repository = extraction_request_repository
         self.file_type_detector = FileTypeDetector()
 
     async def extract_data(self, file_content: bytes, mime_type: str) -> dict:
@@ -80,3 +101,45 @@ class LabAnalyzerService:
             "json_data": json_data,
             "csv_data": csv_data
         }
+
+    async def prepare_file_for_queue(
+        self,
+        file_content: bytes,
+        original_filename: str | None,
+        password: str | None = None,
+    ) -> tuple[bytes, str, str]:
+        """Valida y prepara un archivo para persistirlo en la cola."""
+        if not original_filename or not original_filename.strip():
+            raise ValueError("El archivo debe incluir un nombre original.")
+        if not file_content:
+            raise ValueError("El archivo está vacío.")
+
+        mime_type = self.file_type_detector.detect(file_content, original_filename, None)
+        if not self.file_type_detector.is_allowed(mime_type):
+            raise UnsupportedFileTypeError(
+                "Formato no soportado. Sube un PDF, PNG, JPG o WEBP."
+            )
+
+        if PdfUtils.is_pdf(file_content):
+            file_content = PdfUtils.unlock_pdf(file_content, password)
+
+        return file_content, mime_type, original_filename.strip()
+
+    async def enqueue_for_extraction(
+        self,
+        file_content: bytes,
+        original_filename: str | None,
+        password: str | None = None,
+    ) -> LabExtractionRequest:
+        """Prepara el archivo y crea una solicitud pendiente de extracción."""
+        prepared_content, mime_type, validated_filename = await self.prepare_file_for_queue(
+            file_content=file_content,
+            original_filename=original_filename,
+            password=password,
+        )
+        request = LabExtractionRequestCreate(
+            file_content=prepared_content,
+            mime_type=mime_type,
+            original_filename=validated_filename,
+        )
+        return await self.extraction_request_repository.create(request)
