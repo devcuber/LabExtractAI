@@ -4,7 +4,7 @@ import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -31,6 +31,7 @@ def created_request(
 ) -> LabExtractionRequest:
     return LabExtractionRequest(
         id=uuid4(),
+        user_id=uuid4(),
         file_content=file_content,
         mime_type=mime_type,
         original_filename=original_filename,
@@ -61,7 +62,7 @@ def test_enqueue_valid_image_persists_detected_mime_and_original_bytes():
     repository = make_repository(result=saved)
     service = make_service(repository)
 
-    result = run(service.enqueue_for_extraction(PNG_CONTENT, "  estudio.png  "))
+    result = run(service.enqueue_for_extraction(PNG_CONTENT, "  estudio.png  ", user_id=saved.user_id))
 
     assert result == saved
     repository.create.assert_awaited_once()
@@ -82,7 +83,7 @@ def test_enqueue_unprotected_pdf_preserves_original_bytes(monkeypatch):
 
     monkeypatch.setattr(PdfUtils, "unlock_pdf", staticmethod(return_original))
 
-    result = run(service.enqueue_for_extraction(PDF_CONTENT, "estudio.pdf"))
+    result = run(service.enqueue_for_extraction(PDF_CONTENT, "estudio.pdf", user_id=saved.user_id))
 
     assert result == saved
     data = repository.create.await_args.args[0]
@@ -103,7 +104,7 @@ def test_enqueue_protected_pdf_persists_unlocked_bytes(monkeypatch):
 
     monkeypatch.setattr(PdfUtils, "unlock_pdf", staticmethod(unlock_pdf))
 
-    run(service.enqueue_for_extraction(PDF_CONTENT, "seguro.pdf", password="correcta"))
+    run(service.enqueue_for_extraction(PDF_CONTENT, "seguro.pdf", password="correcta", user_id=saved.user_id))
 
     data = repository.create.await_args.args[0]
     assert data.file_content == unlocked_content
@@ -117,7 +118,7 @@ def test_enqueue_rejects_missing_original_filename(filename):
     service = make_service(repository)
 
     with pytest.raises(ValueError, match="nombre original"):
-        run(service.enqueue_for_extraction(PNG_CONTENT, filename))
+        run(service.enqueue_for_extraction(PNG_CONTENT, filename, user_id=uuid4()))
 
     repository.create.assert_not_awaited()
 
@@ -127,7 +128,7 @@ def test_enqueue_rejects_empty_file():
     service = make_service(repository)
 
     with pytest.raises(ValueError, match="archivo está vacío"):
-        run(service.enqueue_for_extraction(b"", "estudio.png"))
+        run(service.enqueue_for_extraction(b"", "estudio.png", user_id=uuid4()))
 
     repository.create.assert_not_awaited()
 
@@ -137,7 +138,7 @@ def test_enqueue_rejects_unsupported_file_type():
     service = make_service(repository)
 
     with pytest.raises(UnsupportedFileTypeError):
-        run(service.enqueue_for_extraction(b"unrecognized-data", "estudio.exe"))
+        run(service.enqueue_for_extraction(b"unrecognized-data", "estudio.exe", user_id=uuid4()))
 
     repository.create.assert_not_awaited()
 
@@ -152,7 +153,7 @@ def test_enqueue_propagates_password_required_error(monkeypatch):
     monkeypatch.setattr(PdfUtils, "unlock_pdf", staticmethod(unlock_pdf))
 
     with pytest.raises(PdfPasswordRequiredError):
-        run(service.enqueue_for_extraction(PDF_CONTENT, "protegido.pdf"))
+        run(service.enqueue_for_extraction(PDF_CONTENT, "protegido.pdf", user_id=uuid4()))
 
     repository.create.assert_not_awaited()
 
@@ -167,7 +168,7 @@ def test_enqueue_propagates_incorrect_password_error(monkeypatch):
     monkeypatch.setattr(PdfUtils, "unlock_pdf", staticmethod(unlock_pdf))
 
     with pytest.raises(PdfIncorrectPasswordError):
-        run(service.enqueue_for_extraction(PDF_CONTENT, "protegido.pdf", password="incorrecta"))
+        run(service.enqueue_for_extraction(PDF_CONTENT, "protegido.pdf", password="incorrecta", user_id=uuid4()))
 
     repository.create.assert_not_awaited()
 
@@ -178,6 +179,6 @@ def test_enqueue_propagates_repository_error():
     service = make_service(repository)
 
     with pytest.raises(RuntimeError, match="database unavailable"):
-        run(service.enqueue_for_extraction(PNG_CONTENT, "estudio.png"))
+        run(service.enqueue_for_extraction(PNG_CONTENT, "estudio.png", user_id=uuid4()))
 
     repository.create.assert_awaited_once()

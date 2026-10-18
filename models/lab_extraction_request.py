@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class LabExtractionStatus(StrEnum):
@@ -20,6 +20,7 @@ class LabExtractionRequestCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    user_id: UUID
     file_content: bytes
     mime_type: str
     original_filename: str
@@ -31,6 +32,7 @@ class LabExtractionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
+    user_id: UUID
     file_content: bytes
     mime_type: str
     original_filename: str

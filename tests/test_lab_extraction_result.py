@@ -3,8 +3,8 @@ import os
 import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
-from uuid import uuid4
+from unittest.mock import ANY, AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -29,6 +29,7 @@ def run(coroutine):
 def make_request(status, result_json=None, error_message=None):
     return LabExtractionRequest(
         id=uuid4(),
+        user_id=uuid4(),
         file_content=b"content",
         mime_type="image/png",
         original_filename="estudio.png",
@@ -50,8 +51,8 @@ def test_get_extraction_result_returns_completed_json():
     request = make_request(LabExtractionStatus.COMPLETED, result_json=result_json)
     service, repository = make_service(request)
 
-    assert run(service.get_extraction_result(request.id)) == result_json
-    repository.get_by_id.assert_awaited_once_with(request.id)
+    assert run(service.get_extraction_result(request.id, request.user_id)) == result_json
+    repository.get_by_id.assert_awaited_once_with(request.id, request.user_id)
 
 
 @pytest.mark.parametrize("status", [LabExtractionStatus.PENDING, LabExtractionStatus.PROCESSING])
@@ -60,7 +61,7 @@ def test_get_extraction_result_rejects_unfinished_request(status):
     service, _ = make_service(request)
 
     with pytest.raises(ExtractionResultNotReadyError) as error:
-        run(service.get_extraction_result(request.id))
+        run(service.get_extraction_result(request.id, request.user_id))
 
     assert error.value.status == status
 
@@ -70,7 +71,7 @@ def test_get_extraction_result_rejects_missing_request():
     service, _ = make_service(None)
 
     with pytest.raises(ExtractionRequestNotFoundError):
-        run(service.get_extraction_result(request_id))
+        run(service.get_extraction_result(request_id, uuid4()))
 
 
 def test_get_extraction_result_rejects_failed_request():
@@ -78,7 +79,7 @@ def test_get_extraction_result_rejects_failed_request():
     service, _ = make_service(request)
 
     with pytest.raises(ExtractionRequestFailedError) as error:
-        run(service.get_extraction_result(request.id))
+        run(service.get_extraction_result(request.id, request.user_id))
 
     assert error.value.error_message == "LLM unavailable"
 
@@ -88,7 +89,7 @@ def test_get_extraction_result_rejects_completed_request_without_json():
     service, _ = make_service(request)
 
     with pytest.raises(ExtractionResultMissingError):
-        run(service.get_extraction_result(request.id))
+        run(service.get_extraction_result(request.id, request.user_id))
 
 
 def test_get_extraction_csv_returns_csv_and_original_filename():
@@ -102,13 +103,13 @@ def test_get_extraction_csv_returns_csv_and_original_filename():
     request.original_filename = "biometría hemática.pdf"
     service, repository = make_service(request)
 
-    csv_data, original_filename = run(service.get_extraction_csv(request.id))
+    csv_data, original_filename = run(service.get_extraction_csv(request.id, request.user_id))
 
     assert original_filename == "biometría hemática.pdf"
     assert "Status,,,final,," in csv_data
     assert "Texto Original,Código LOINC,Descripción LOINC,Valor,Rango de Referencia,Interpretación" in csv_data
     assert "Glucosa,,,95 mg/dL,," in csv_data
-    repository.get_by_id.assert_awaited_once_with(request.id)
+    repository.get_by_id.assert_awaited_once_with(request.id, request.user_id)
 
 
 @pytest.mark.parametrize("status", [LabExtractionStatus.PENDING, LabExtractionStatus.PROCESSING])
@@ -117,14 +118,14 @@ def test_get_extraction_csv_rejects_unfinished_request(status):
     service, _ = make_service(request)
 
     with pytest.raises(ExtractionResultNotReadyError):
-        run(service.get_extraction_csv(request.id))
+        run(service.get_extraction_csv(request.id, request.user_id))
 
 
 def test_get_extraction_csv_rejects_missing_request():
     service, _ = make_service(None)
 
     with pytest.raises(ExtractionRequestNotFoundError):
-        run(service.get_extraction_csv(uuid4()))
+        run(service.get_extraction_csv(uuid4(), uuid4()))
 
 
 def test_get_extraction_csv_rejects_failed_request():
@@ -132,7 +133,7 @@ def test_get_extraction_csv_rejects_failed_request():
     service, _ = make_service(request)
 
     with pytest.raises(ExtractionRequestFailedError):
-        run(service.get_extraction_csv(request.id))
+        run(service.get_extraction_csv(request.id, request.user_id))
 
 
 def test_get_extraction_csv_rejects_completed_request_without_json():
@@ -140,7 +141,7 @@ def test_get_extraction_csv_rejects_completed_request_without_json():
     service, _ = make_service(request)
 
     with pytest.raises(ExtractionResultMissingError):
-        run(service.get_extraction_csv(request.id))
+        run(service.get_extraction_csv(request.id, request.user_id))
 
 
 def test_csv_endpoint_returns_download_response_with_utf8_filename():
@@ -149,7 +150,7 @@ def test_csv_endpoint_returns_download_response_with_utf8_filename():
         get_extraction_csv=AsyncMock(return_value=("Status,final", "biometría hemática.pdf"))
     )
 
-    response = run(download_lab_extraction_csv(request_id, service))
+    response = run(download_lab_extraction_csv(request_id, uuid4(), service))
 
     assert response.status_code == 200
     assert response.media_type == "text/csv"
@@ -159,7 +160,7 @@ def test_csv_endpoint_returns_download_response_with_utf8_filename():
         "attachment; filename=\"biometría hemática_clinical_data.csv\"; "
         "filename*=UTF-8''biometr%C3%ADa%20hem%C3%A1tica_clinical_data.csv"
     )
-    service.get_extraction_csv.assert_awaited_once_with(request_id)
+    service.get_extraction_csv.assert_awaited_once_with(request_id, ANY)
 
 
 @pytest.mark.parametrize(
@@ -187,7 +188,7 @@ def test_csv_endpoint_maps_domain_errors(error, expected_status, expected_detail
     service = SimpleNamespace(get_extraction_csv=AsyncMock(side_effect=error))
 
     with pytest.raises(HTTPException) as raised:
-        run(download_lab_extraction_csv(uuid4(), service))
+        run(download_lab_extraction_csv(uuid4(), uuid4(), service))
 
     assert raised.value.status_code == expected_status
     assert raised.value.detail == expected_detail
@@ -195,7 +196,7 @@ def test_csv_endpoint_maps_domain_errors(error, expected_status, expected_detail
     request_id = uuid4()
     service = SimpleNamespace(get_extraction_result=AsyncMock(return_value={"resourceType": "Observation"}))
 
-    assert run(get_lab_extraction_result(request_id, service)) == {"resourceType": "Observation"}
+    assert run(get_lab_extraction_result(request_id, uuid4(), service)) == {"resourceType": "Observation"}
 
 
 @pytest.mark.parametrize(
@@ -223,7 +224,7 @@ def test_endpoint_maps_domain_errors(error, expected_status, expected_detail):
     service = SimpleNamespace(get_extraction_result=AsyncMock(side_effect=error))
 
     with pytest.raises(HTTPException) as raised:
-        run(get_lab_extraction_result(uuid4(), service))
+        run(get_lab_extraction_result(uuid4(), uuid4(), service))
 
     assert raised.value.status_code == expected_status
     assert raised.value.detail == expected_detail

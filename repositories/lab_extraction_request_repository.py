@@ -27,6 +27,7 @@ class LabExtractionRequestRepository(
 
     _FULL_COLUMNS = """
         id,
+        user_id,
         file_content,
         mime_type,
         original_filename,
@@ -43,12 +44,13 @@ class LabExtractionRequestRepository(
     async def create(self, data: LabExtractionRequestCreate) -> LabExtractionRequest:
         query = f"""
             INSERT INTO lab_extraction_requests (
+                user_id,
                 file_content,
                 mime_type,
                 original_filename,
                 status
             )
-            VALUES (%s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING {self._FULL_COLUMNS};
         """
 
@@ -58,6 +60,7 @@ class LabExtractionRequestRepository(
                     await cursor.execute(
                         query,
                         (
+                            data.user_id,
                             data.file_content,
                             data.mime_type,
                             data.original_filename,
@@ -72,16 +75,17 @@ class LabExtractionRequestRepository(
 
         return LabExtractionRequest.model_validate(row)
 
-    async def get_by_id(self, entity_id: UUID) -> LabExtractionRequest | None:
+    async def get_by_id(self, entity_id: UUID, user_id: UUID | None = None) -> LabExtractionRequest | None:
         query = f"""
             SELECT {self._FULL_COLUMNS}
             FROM lab_extraction_requests
-            WHERE id = %s;
+            WHERE id = %s
+              AND (%s::uuid IS NULL OR user_id = %s::uuid);
         """
 
         async with self._pool.connection() as connection:
             async with connection.cursor(row_factory=dict_row) as cursor:
-                await cursor.execute(query, (entity_id,))
+                await cursor.execute(query, (entity_id, user_id, user_id))
                 row = await cursor.fetchone()
 
         return LabExtractionRequest.model_validate(row) if row else None
@@ -152,7 +156,7 @@ class LabExtractionRequestRepository(
 
         return [row["id"] for row in rows]
 
-    async def list(self) -> list[LabExtractionRequestListItem]:
+    async def list(self, user_id: UUID) -> list[LabExtractionRequestListItem]:
         query = """
             SELECT
                 id,
@@ -163,12 +167,13 @@ class LabExtractionRequestRepository(
                 completed_at,
                 error_message
             FROM lab_extraction_requests
+            WHERE user_id = %s
             ORDER BY created_at DESC;
         """
 
         async with self._pool.connection() as connection:
             async with connection.cursor(row_factory=dict_row) as cursor:
-                await cursor.execute(query)
+                await cursor.execute(query, (user_id,))
                 rows = await cursor.fetchall()
 
         return [LabExtractionRequestListItem.model_validate(row) for row in rows]

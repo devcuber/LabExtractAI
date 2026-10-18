@@ -135,6 +135,16 @@ def get_lab_service(request: Request) -> LabAnalyzerService:
     return request.app.state.lab_service
 
 
+def get_cookie_user_id(request: Request) -> UUID:
+    raw_user_id = request.cookies.get("cdie_user_id")
+    if not raw_user_id:
+        raise HTTPException(status_code=400, detail="La cookie cdie_user_id es obligatoria.")
+    try:
+        return UUID(raw_user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="La cookie cdie_user_id debe ser un UUID válido.")
+
+
 @app.get("/")
 async def read_index():
     return FileResponse("index.html")
@@ -169,6 +179,7 @@ async def create_lab_extraction_request(
     http_request: Request,
     file: UploadFile = File(...),
     password: str | None = Form(None),
+    user_id: UUID = Depends(get_cookie_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     content = await file.read()
@@ -178,6 +189,7 @@ async def create_lab_extraction_request(
             file_content=content,
             original_filename=file.filename,
             password=password,
+            user_id=user_id,
         )
         await http_request.app.state.lab_extraction_queue.put(request.id)
     except ValueError as e:
@@ -200,10 +212,11 @@ async def create_lab_extraction_request(
 @app.get("/api/v1/lab-extraction-requests/{request_id}/result")
 async def get_lab_extraction_result(
     request_id: UUID,
+    user_id: UUID = Depends(get_cookie_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     try:
-        return await lab_service.get_extraction_result(request_id)
+        return await lab_service.get_extraction_result(request_id, user_id)
     except ExtractionRequestNotFoundError:
         raise HTTPException(status_code=404, detail="La solicitud de extracción no existe.")
     except ExtractionResultNotReadyError as error:
@@ -232,10 +245,11 @@ async def get_lab_extraction_result(
 @app.get("/api/v1/lab-extraction-requests/{request_id}/csv")
 async def download_lab_extraction_csv(
     request_id: UUID,
+    user_id: UUID = Depends(get_cookie_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     try:
-        csv_data, original_filename = await lab_service.get_extraction_csv(request_id)
+        csv_data, original_filename = await lab_service.get_extraction_csv(request_id, user_id)
     except ExtractionRequestNotFoundError:
         raise HTTPException(status_code=404, detail="La solicitud de extracción no existe.")
     except ExtractionResultNotReadyError as error:
@@ -275,6 +289,7 @@ async def download_lab_extraction_csv(
 
 @app.get("/api/v1/lab-extraction-requests", response_model=list[LabExtractionRequestListItem])
 async def list_lab_extraction_requests(
+    user_id: UUID = Depends(get_cookie_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
-    return await lab_service.list_extraction_requests()
+    return await lab_service.list_extraction_requests(user_id)

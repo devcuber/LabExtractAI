@@ -152,23 +152,27 @@ class LabAnalyzerService:
         file_content: bytes,
         original_filename: str | None,
         password: str | None = None,
+        user_id: UUID | None = None,
     ) -> LabExtractionRequest:
         """Prepara el archivo y crea una solicitud pendiente de extracción."""
+        if user_id is None:
+            raise ValueError("Se requiere el identificador de usuario.")
         prepared_content, mime_type, validated_filename = await self.prepare_file_for_queue(
             file_content=file_content,
             original_filename=original_filename,
             password=password,
         )
         request = LabExtractionRequestCreate(
+            user_id=user_id,
             file_content=prepared_content,
             mime_type=mime_type,
             original_filename=validated_filename,
         )
         return await self.extraction_request_repository.create(request)
 
-    async def get_extraction_result(self, request_id: UUID) -> dict | list:
-        """Obtiene el resultado FHIR de una solicitud completada."""
-        request = await self.extraction_request_repository.get_by_id(request_id)
+    async def get_extraction_result(self, request_id: UUID, user_id: UUID) -> dict | list:
+        """Obtiene el resultado FHIR de una solicitud completada del usuario indicado."""
+        request = await self.extraction_request_repository.get_by_id(request_id, user_id)
         if request is None:
             raise ExtractionRequestNotFoundError()
         if request.status in (LabExtractionStatus.PENDING, LabExtractionStatus.PROCESSING):
@@ -179,9 +183,9 @@ class LabAnalyzerService:
             raise ExtractionResultMissingError()
         return request.result_json
 
-    async def get_extraction_csv(self, request_id: UUID) -> tuple[str, str]:
-        """Genera el CSV descargable desde el resultado FHIR persistido."""
-        request = await self.extraction_request_repository.get_by_id(request_id)
+    async def get_extraction_csv(self, request_id: UUID, user_id: UUID) -> tuple[str, str]:
+        """Genera el CSV descargable desde el resultado FHIR persistido del usuario indicado."""
+        request = await self.extraction_request_repository.get_by_id(request_id, user_id)
         if request is None:
             raise ExtractionRequestNotFoundError()
         if request.status in (LabExtractionStatus.PENDING, LabExtractionStatus.PROCESSING):
@@ -195,6 +199,6 @@ class LabAnalyzerService:
         csv_data = list_to_csv_string(vertical_rows, write_header=False)
         return csv_data, request.original_filename
 
-    async def list_extraction_requests(self) -> list[LabExtractionRequestListItem]:
-        """Obtiene la lista completa de solicitudes de extracción ordenadas por fecha de creación."""
-        return await self.extraction_request_repository.list()
+    async def list_extraction_requests(self, user_id: UUID) -> list[LabExtractionRequestListItem]:
+        """Obtiene las solicitudes del usuario ordenadas por fecha de creación."""
+        return await self.extraction_request_repository.list(user_id)

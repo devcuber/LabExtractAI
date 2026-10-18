@@ -15,6 +15,7 @@ def run(coroutine):
 def make_request(status=LabExtractionStatus.PENDING):
     return LabExtractionRequest(
         id=uuid4(),
+        user_id=uuid4(),
         file_content=b"content",
         mime_type="image/png",
         original_filename="estudio.png",
