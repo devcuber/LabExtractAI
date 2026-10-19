@@ -11,7 +11,7 @@ from starlette.requests import Request
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from main import get_cookie_user_id
+from main import get_header_user_id
 from models.lab_extraction_request import LabExtractionRequest, LabExtractionStatus
 from services.lab_service import ExtractionRequestNotFoundError, LabAnalyzerService
 
@@ -20,20 +20,20 @@ def run(coroutine):
     return asyncio.run(coroutine)
 
 
-def request_with_cookie(value=None):
-    headers = [] if value is None else [(b"cookie", f"cdie_user_id={value}".encode())]
+def request_with_header(value=None):
+    headers = [] if value is None else [(b"cdie_user_id", str(value).encode())]
     return Request({"type": "http", "headers": headers})
 
 
-def test_cookie_user_id_is_parsed_as_uuid():
+def test_header_user_id_is_parsed_as_uuid():
     user_id = uuid4()
-    assert get_cookie_user_id(request_with_cookie(user_id)) == user_id
+    assert get_header_user_id(cdie_user_id=str(user_id)) == user_id
 
 
 @pytest.mark.parametrize("value", [None, "not-a-uuid"])
-def test_cookie_user_id_rejects_missing_or_invalid_values(value):
+def test_header_user_id_rejects_missing_or_invalid_values(value):
     with pytest.raises(HTTPException) as error:
-        get_cookie_user_id(request_with_cookie(value))
+        get_header_user_id(cdie_user_id=value)
     assert error.value.status_code == 400
 
 

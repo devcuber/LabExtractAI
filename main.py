@@ -9,7 +9,7 @@ from urllib.parse import quote
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from google.genai import types
@@ -135,14 +135,21 @@ def get_lab_service(request: Request) -> LabAnalyzerService:
     return request.app.state.lab_service
 
 
-def get_cookie_user_id(request: Request) -> UUID:
-    raw_user_id = request.cookies.get("cdie_user_id")
+def get_header_user_id(
+    cdie_user_id: str | None = Header(
+        default=None,
+        alias="cdie_user_id",
+        convert_underscores=False,
+        description="UUID del usuario autenticado.",
+    ),
+) -> UUID:
+    raw_user_id = cdie_user_id
     if not raw_user_id:
-        raise HTTPException(status_code=400, detail="La cookie cdie_user_id es obligatoria.")
+        raise HTTPException(status_code=400, detail="El header cdie_user_id es obligatorio.")
     try:
         return UUID(raw_user_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="La cookie cdie_user_id debe ser un UUID válido.")
+        raise HTTPException(status_code=400, detail="El header cdie_user_id debe ser un UUID válido.")
 
 
 @app.get("/")
@@ -179,7 +186,7 @@ async def create_lab_extraction_request(
     http_request: Request,
     file: UploadFile = File(...),
     password: str | None = Form(None),
-    user_id: UUID = Depends(get_cookie_user_id),
+    user_id: UUID = Depends(get_header_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     content = await file.read()
@@ -212,7 +219,7 @@ async def create_lab_extraction_request(
 @app.get("/api/v1/lab-extraction-requests/{request_id}/result")
 async def get_lab_extraction_result(
     request_id: UUID,
-    user_id: UUID = Depends(get_cookie_user_id),
+    user_id: UUID = Depends(get_header_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     try:
@@ -245,7 +252,7 @@ async def get_lab_extraction_result(
 @app.get("/api/v1/lab-extraction-requests/{request_id}/csv")
 async def download_lab_extraction_csv(
     request_id: UUID,
-    user_id: UUID = Depends(get_cookie_user_id),
+    user_id: UUID = Depends(get_header_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     try:
@@ -289,7 +296,7 @@ async def download_lab_extraction_csv(
 
 @app.get("/api/v1/lab-extraction-requests", response_model=list[LabExtractionRequestListItem])
 async def list_lab_extraction_requests(
-    user_id: UUID = Depends(get_cookie_user_id),
+    user_id: UUID = Depends(get_header_user_id),
     lab_service: LabAnalyzerService = Depends(get_lab_service),
 ):
     return await lab_service.list_extraction_requests(user_id)
