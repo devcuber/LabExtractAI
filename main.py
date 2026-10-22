@@ -285,8 +285,8 @@ async def download_lab_extraction_csv(
     filename = f"{Path(original_filename).stem}_clinical_data.csv"
     encoded_filename = quote(filename)
     return Response(
-        content=csv_data,
-        media_type="text/csv",
+        content=csv_data.encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{filename}"; filename*=UTF-8\'\'{encoded_filename}'
